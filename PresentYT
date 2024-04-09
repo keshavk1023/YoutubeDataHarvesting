@@ -7,7 +7,7 @@ from pprint import pprint
 import googleapiclient.discovery
 
 # Set up API credentials
-api_key = 'AIzaSyCVQvWj0mElUaMcf8rKOFhePAooFjIHNUY'
+api_key = 'AIzaSyAh_ajCgEPccQR1DgsateTWWmYbXLAcYIY'
 api_service_name = "youtube"
 api_version = "v3"
 
@@ -18,7 +18,7 @@ youtube = googleapiclient.discovery.build(api_service_name, api_version, develop
 import mysql.connector
 
 # Connect to MySQL database
-conn = mysql.connector.connect(host='localhost', username='root', password='Ke$hw0rd-12345', database='youtube')
+conn = mysql.connector.connect(host='localhost', username='root', password='Ke$hw0rd-12345', database='youtube_harvest')
 cursor = conn.cursor()
 conn.commit()
 
