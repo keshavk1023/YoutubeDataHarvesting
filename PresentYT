@@ -1,13 +1,13 @@
 # Import necessary libraries
 import streamlit as st  # A Python library for creating web apps
 import pandas as pd  # A library for data manipulation and analysis
-from pprint import pprint
+from pprint import pprint  # For pretty-printing data structures
 
 # Import libraries for Google Sheets API
 import googleapiclient.discovery
 
 # Set up API credentials
-api_key = 'AIzaSyAh_ajCgEPccQR1DgsateTWWmYbXLAcYIY'
+api_key = 'YOUR_API_KEY'  # Replace 'YOUR_API_KEY' with your actual API key
 api_service_name = "youtube"
 api_version = "v3"
 
@@ -18,7 +18,7 @@ youtube = googleapiclient.discovery.build(api_service_name, api_version, develop
 import mysql.connector
 
 # Connect to MySQL database
-conn = mysql.connector.connect(host='localhost', username='root', password='Ke$hw0rd-12345', database='youtube_harvest')
+conn = mysql.connector.connect(host='localhost', username='root', password='YOUR_PASSWORD', database='youtube_harvest')
 cursor = conn.cursor()
 conn.commit()
 
@@ -154,30 +154,33 @@ def get_comment_detail(video_ids):
         list: A list of dictionaries containing details of each comment.
     """
     comment_data = []
-    for video_id in video_ids:
-        request = youtube.commentThreads().list(
-            part="snippet",
-            videoId=video_id,
-            maxResults=50
-        )
-        response = request.execute()
+    try:
+        for video_id in video_ids:
+            request = youtube.commentThreads().list(
+                part="snippet",
+                videoId=video_id,
+                maxResults=50
+            )
+            response = request.execute()
 
-        for i in range(len(response['items'])):
-            data = {
-                "comment_Text": response['items'][i]['snippet']['topLevelComment']['snippet']['textDisplay'],
-                "comment_Author": response['items'][i]['snippet']['topLevelComment']['snippet'][
-                    'authorDisplayName'],
-                "comment_Published": response['items'][i]['snippet']['topLevelComment']['snippet']['publishedAt'],
-                "video_id": response['items'][i]['snippet']['topLevelComment']['snippet']['videoId']
-            }
+            for i in range(len(response['items'])):            
+                data = {
+                    "comment_Text": response['items'][i]['snippet']['topLevelComment']['snippet'].get('textDisplay'),
+                    "comment_Author": response['items'][i]['snippet']['topLevelComment']['snippet'].get(
+                        'authorDisplayName'),
+                    "comment_Published": response['items'][i]['snippet']['topLevelComment']['snippet'].get('publishedAt'),
+                    "video_id": response['items'][i]['snippet']['topLevelComment']['snippet'].get('videoId')
+                }
 
-            comment_data.append(data)
+                comment_data.append(data)
+    except:
+        pass
     return comment_data
 
 
 def channel_tables(channel_id):
     """
-    Fetch channel details and insert them into the 'channel_detail' table.
+    Fetch channel details and insert them into the 'channel_detail' table if they do not already exist.
     
     Parameters:
         channel_id (str): The ID of the YouTube channel.
@@ -186,24 +189,30 @@ def channel_tables(channel_id):
         dict: A dictionary containing channel details.
     """
     channel_data = get_channel_detail(channel_id)
-    # To insert the channel data in its respective SQL table :
     cursor = conn.cursor()
 
-    sql_ch = '''INSERT INTO channel_detail(channel_name ,
-                                        publish_at ,
-                                        playlist_id ,
-                                        sub_count ,
-                                        vid_count,
-                                        views) VALUES (%s,%s,%s,%s,%s,%s)'''
-    val_ch = tuple(channel_data.values())
-    cursor.execute(sql_ch, val_ch)
-    conn.commit()
-    return channel_data
+    # Check if the channel exists in the table before inserting
+    sql_check = "SELECT * FROM channel_detail WHERE channel_name = %s"
+    cursor.execute(sql_check, (channel_data['channel_name'],))
+    result = cursor.fetchone()
 
+    if not result:
+        # Insert the channel data into the SQL table
+        sql_ch = '''INSERT INTO channel_detail(channel_name,
+                                                publish_at,
+                                                playlist_id,
+                                                sub_count,
+                                                vid_count,
+                                                views) VALUES (%s,%s,%s,%s,%s,%s)'''
+        val_ch = tuple(channel_data.values())
+        cursor.execute(sql_ch, val_ch)
+        conn.commit()
+
+    return channel_data
 
 def video_tables(channel_id):
     """
-    Fetch video details and insert them into the 'video_detail' table.
+    Fetch video details and insert them into the 'video_detail' table if they do not already exist.
     
     Parameters:
         channel_id (str): The ID of the YouTube channel.
@@ -214,52 +223,69 @@ def video_tables(channel_id):
     video_ids = get_videos_ids(channel_id)
     video_data = get_video_detail(video_ids)
 
-    # To insert the video data into its respective SQL table :
-    vid_detail = []
-    for i in video_data:
-        vid_detail.append(tuple(i.values()))
     cursor = conn.cursor()
 
-    sql_vi = '''INSERT INTO video_detail(channel_name ,
-                                        video_id ,
-                                        title ,
-                                        published_date ,
-                                        duration ,
-                                        views ,
-                                        likes ,
-                                        comments) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)'''
+    for video in video_data:
+        # Check if the video exists in the table before inserting
+        sql_check = "SELECT * FROM video_detail WHERE video_id = %s"
+        cursor.execute(sql_check, (video['video_id'],))
+        result = cursor.fetchone()
 
-    val_vi = vid_detail
-    cursor.executemany(sql_vi, val_vi)
+        if not result:
+            # Insert the video data into the SQL table
+            sql_vi = '''INSERT INTO video_detail(channel_name,
+                                                  video_id,
+                                                  title,
+                                                  published_date,
+                                                  duration,
+                                                  views,
+                                                  likes,
+                                                  comments) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)'''
+
+            val_vi = tuple(video.values())
+            cursor.execute(sql_vi, val_vi)
+
+        # Consume any unread results
+        cursor.fetchall()
+
     conn.commit()
     return video_data
 
-
 def comment_tables():
     """
-    Fetch comment details and insert them into the 'comment_detail' table.
+    Fetch comment details and insert them into the 'comment_detail' table if they do not already exist.
     
     Returns:
         list: A list of dictionaries containing comment details.
     """
     video_ids = get_videos_ids(channel_id)
     comment_data = get_comment_detail(video_ids)
-    # To insert the comment data into its respective SQL table ;
-    comment_detail = []
-    for i in comment_data:
-        comment_detail.append(tuple(i.values()))
+
     cursor = conn.cursor()
 
-    sql_co = '''INSERT INTO comment_detail(comment_Text,
-                                        comment_Author,
-                                        comment_Published,
-                                        video_id) VALUES (%s,%s,%s,%s)'''
-    val_co = comment_detail
-    cursor.executemany(sql_co, val_co)
+    for comment in comment_data:
+        # Check if the comment exists in the table before inserting
+        sql_check = "SELECT * FROM comment_detail WHERE comment_Text = %s AND comment_Author = %s AND video_id = %s"
+        cursor.execute(sql_check, (comment['comment_Text'], comment['comment_Author'], comment['video_id']))
+        
+        # Fetch all results to consume them
+        cursor.fetchall()
+
+        result = cursor.fetchone()
+
+        if not result:
+            # Insert the comment data into the SQL table
+            sql_co = '''INSERT INTO comment_detail(comment_Text,
+                                                    comment_Author,
+                                                    comment_Published,
+                                                    video_id) VALUES (%s,%s,%s,%s)'''
+            val_co = tuple(comment.values())
+            cursor.execute(sql_co, val_co)
+
     conn.commit()
+    cursor.close()
 
     return comment_data
-
 
 # Streamlit app setup
 st.title(":red[YOUTUBE DATA HARVESTING & WAREHOUSING]")
@@ -316,14 +342,14 @@ if question == "select the query":
     pass
 
 if question == "1. All the videos and the channel name":
-    query1 = '''select title as videos,channel_name as channelname from video_detail'''
+    query1 = '''select distinct title as videos,channel_name as channelname from video_detail'''
     cursor.execute(query1)
     t1 = cursor.fetchall()
     df = pd.DataFrame(t1, columns=["video title", "channel name"])
     st.write(df)
 
 elif question == "2. channels with most number of videos":
-    query2 = '''select channel_name as channelname,vid_count as no_videos from channel_detail
+    query2 = '''select distinct channel_name as channelname,vid_count as no_videos from channel_detail
                 order by vid_count desc'''
     cursor.execute(query2)
     t2 = cursor.fetchall()
@@ -331,7 +357,7 @@ elif question == "2. channels with most number of videos":
     st.write(df2)
 
 elif question == "3. 10 most viewed videos":
-    query3 = '''select views as views,channel_name as channelname,title as videotitle from video_detail
+    query3 = '''select distinct views as views,channel_name as channelname,title as videotitle from video_detail
                 where views is not null order by views desc limit 10'''
     cursor.execute(query3)
     t3 = cursor.fetchall()
@@ -339,14 +365,14 @@ elif question == "3. 10 most viewed videos":
     st.write(df3)
 
 elif question == "4. comments in each videos":
-    query4 = '''select comments as no_comments,title as videotitle from video_detail where comments is not null'''
+    query4 = '''select distinct comments as no_comments,title as videotitle from video_detail where comments is not null'''
     cursor.execute(query4)
     t4 = cursor.fetchall()
     df4 = pd.DataFrame(t4, columns=["no of comments", "videotitle"])
     st.write(df4)
 
 elif question == "5. Videos with highest likes":
-    query5 = '''select title as videotitle,channel_name as channelname,likes as likecount
+    query5 = '''select distinct title as videotitle,channel_name as channelname,likes as likecount
                 from video_detail where likes is not null order by likes desc'''
     cursor.execute(query5)
     t5 = cursor.fetchall()
@@ -354,21 +380,21 @@ elif question == "5. Videos with highest likes":
     st.write(df5)
 
 elif question == "6. likes of all videos":
-    query6 = '''select likes as likecount,title as videotitle from video_detail'''
+    query6 = '''select distinct likes as likecount,title as videotitle from video_detail'''
     cursor.execute(query6)
     t6 = cursor.fetchall()
     df6 = pd.DataFrame(t6, columns=["likecount", "videotitle"])
     st.write(df6)
 
 elif question == "7. views of each channel":
-    query7 = '''select channel_name as channelname ,views as totalviews from channel_detail'''
+    query7 = '''select distinct channel_name as channelname ,views as totalviews from channel_detail'''
     cursor.execute(query7)
     t7 = cursor.fetchall()
     df7 = pd.DataFrame(t7, columns=["channel name", "totalviews"])
     st.write(df7)
 
 elif question == "8. videos published in the year of 2022":
-    query8 = '''select title as video_title,published_date as videoRelease,channel_name as channelname from video_detail
+    query8 = '''select distinct title as video_title,published_date as videoRelease,channel_name as channelname from video_detail
                 where extract(year from published_date)=2022'''
     cursor.execute(query8)
     t8 = cursor.fetchall()
@@ -376,7 +402,7 @@ elif question == "8. videos published in the year of 2022":
     st.write(df8)
 
 elif question == "9. average duration of all videos in each channel":
-    query9 = '''select channel_name as channelname,AVG(duration) as AverageDuration from video_detail group by channel_name'''
+    query9 = '''select distinct channel_name as channelname,AVG(duration) as AverageDuration from video_detail group by channel_name'''
     cursor.execute(query9)
     t9 = cursor.fetchall()
     df9 = pd.DataFrame(t9, columns=["channelname", "AverageDuration"])
@@ -391,7 +417,7 @@ elif question == "9. average duration of all videos in each channel":
     st.write(df1)
 
 elif question == "10. videos with highest number of comments":
-    query10 = '''select title as videotitle, channel_name as channelname,comments as comments from video_detail where comments is
+    query10 = '''select distinct title as videotitle, channel_name as channelname,comments as comments from video_detail where comments is
                 not null order by comments desc'''
     cursor.execute(query10)
     t10 = cursor.fetchall()
